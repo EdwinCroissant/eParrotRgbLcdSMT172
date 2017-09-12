@@ -1,14 +1,19 @@
+/* Copyright (C) 2017 Edwin Croissant
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the version 3 GNU General Public License as
+ * published by the Free Software Foundation.
+ */
 #include "Arduino.h"
 #include <I2C.h>				//https://github.com/rambo/I2C
 #include <RgbLcdKeyShieldI2C.h>	//https://github.com/EdwinCroissantArduinoLibraries/RgbLcdKeyShieldI2C
-//The setup function is called once at startup of the sketch
 
 const char msgSplash1[] PROGMEM = "ABV table write";
-const char msgSplash2[] PROGMEM = "V 0.01    (c) EC";
-const char msgStart1[] PROGMEM = "S transfers";
-const char msgStart2[] PROGMEM = "L verifies";
-const char msgOk[] PROGMEM = "OK";
-const char msgFail[] PROGMEM = "Fail";
+const char msgSplash2[] PROGMEM = "V 0.02    (c) EC";
+const char msgStart1[] PROGMEM = "L=check S=fill";
+const char msgStart2[] PROGMEM = "R=step through";
+const char msgOk[] PROGMEM = " OK";
+const char msgFail[] PROGMEM = " Fail";
 uint16_t VaporAddress;
 char lineBuffer[20];
 uint16_t Counter = 0;
@@ -244,7 +249,7 @@ const static uint16_t VaporABV[] PROGMEM = {
 };
 
 
-uint16_t eepromWriteP(const uint16_t address, const void* data, const uint16_t size) {
+uint16_t eepromWriteP(const uint16_t address, const char* data, const uint16_t size) {
 	/*
 	 * The eeprom page size is 64 bytes.
 	 * Physical page boundaries start at addresses that are integer
@@ -262,7 +267,7 @@ uint16_t eepromWriteP(const uint16_t address, const void* data, const uint16_t s
 			n++;
 		} while ((n < size) && ((address + n) % 64));
 		I2c.stop();
-		delay(10);
+		delay(5);
 	}
 	return n;
 }
@@ -287,10 +292,10 @@ uint16_t epromReadWord(uint16_t address) {
 void fillEeprom() {
 	uint16_t tempAddress = 0;
 	lcd.clear();
-	tempAddress = tempAddress + eepromWriteP(tempAddress, LiquidABV, sizeof(LiquidABV));
+	tempAddress = tempAddress + eepromWriteP(tempAddress, (char*) LiquidABV, sizeof(LiquidABV));
 	lcd.print(tempAddress, HEX);
 	VaporAddress = tempAddress;
-	tempAddress = tempAddress + eepromWriteP(tempAddress, VaporABV, sizeof(VaporABV));
+	tempAddress = tempAddress + eepromWriteP(tempAddress, (char*) VaporABV, sizeof(VaporABV));
 	lcd.setCursor(0,1);
 	lcd.print(tempAddress, HEX);
 }
@@ -301,50 +306,49 @@ void verifyEeprom() {
 	uint16_t errorCount = 0;
 	lcd.clear();
 	for (i = 0; i < sizeof(LiquidABV) / 2; ++i) {
-		lcd.setCursor(0,0);
+		lcd.setCursor(0, 0);
 		lcd.print(i, DEC);
-		if (pgm_read_word(&LiquidABV[i]) != epromReadWord( 0 + i * 2))
+		if (pgm_read_word(&LiquidABV[i]) != epromReadWord(0 + i * 2))
 			errorCount++;
-	lcd.setCursor(8,0);
-	lcd.print(errorCount, DEC);
+		lcd.setCursor(8, 0);
+		lcd.print(errorCount, DEC);
 	}
+	if (errorCount)
+		lcd.printP(msgFail);
+	else
+		lcd.printP(msgOk);
+
 	errorCount = 0;
 	for (i = 0; i < sizeof(VaporABV) / 2; ++i) {
-		lcd.setCursor(0,1);
+		lcd.setCursor(0, 1);
 		lcd.print(i, DEC);
 		if (pgm_read_word(&VaporABV[i]) != epromReadWord(VaporAddress + i * 2))
 			errorCount++;
-	lcd.setCursor(8,1);
-	lcd.print(errorCount, DEC);
+		lcd.setCursor(8, 1);
+		lcd.print(errorCount, DEC);
 	}
-
+	if (errorCount)
+		lcd.printP(msgFail);
+	else
+		lcd.printP(msgOk);
 }
 
-
+//The setup function is called once at startup of the sketch
 void setup() {
 	I2c.begin();
 	I2c.setSpeed(1);
 	I2c.timeOut(10);
 	lcd.begin();
 	lcd.setColor(RgbLcdKeyShieldI2C::clWhite);
+	VaporAddress = sizeof(LiquidABV);
 
 	// show splash
 	lcd.printP(msgSplash1);
 	lcd.setCursor(0,1);
 	lcd.printP(msgSplash2);
-
 	delay(3000);
 
-	lcd.clear();
-	lcd.printP(msgStart1);
-	lcd.setCursor(0,1);
-	lcd.printP(msgStart2);
-	lcd.keySelect.onShortPress = fillEeprom;
-	lcd.keyLeft.onShortPress = verifyEeprom;
-	lcd.keyDown.onShortPress = decCounter;
-	lcd.keyDown.onRepPress = decCounter;
-	lcd.keyUp.onShortPress = incCounter;
-	lcd.keyUp.onRepPress = incCounter;
+	showMainInit();
 }
 
 // The loop function is called in an endless loop
@@ -352,25 +356,95 @@ void loop() {
 	lcd.readKeys();
 }
 
+void showMainInit() {
+	lcd.clear();
+	lcd.noCursor();
+	lcd.printP(msgStart1);
+	lcd.setCursor(0,1);
+	lcd.printP(msgStart2);
+	lcd.clearKeys();
+	lcd.keySelect.onShortPress = fillEeprom;
+	lcd.keyLeft.onShortPress = verifyEeprom;
+	lcd.keyRight.onShortPress = showStepThrough;
+}
+
+void showStepThrough() {
+	lcd.clear();
+	printTableRow();
+	lcd.setCursor(3,0);
+	lcd.cursor();
+	lcd.clearKeys();
+	lcd.keySelect.onShortPress = showMainInit;
+	lcd.keyDown.onShortPress = decCounter;
+	lcd.keyDown.onRepPress = decCounter;
+	lcd.keyUp.onShortPress = incCounter;
+	lcd.keyUp.onRepPress = incCounter;
+	lcd.keyLeft.onShortPress = prevDigit;
+	lcd.keyRight.onShortPress = nextDigit;
+}
 
 void printTableRow() {
-	lcd.setCursor(0,0);
-	sprintf(lineBuffer, "%.4d %.4d %.4d  ", Counter, pgm_read_word(&LiquidABV[Counter]) , epromReadWord(Counter * 2));
+	uint8_t cursorPosition = lcd.getCursor();
+	lcd.noCursor();
+	lcd.setCursor(0, 0);
+	sprintf(lineBuffer, "%.4x %5.1u %5.1u  ", Counter * 2,
+			pgm_read_word(&LiquidABV[Counter]), epromReadWord(Counter * 2));
 	lcd.print(lineBuffer);
-	lcd.setCursor(0,1);
-	sprintf(lineBuffer, "%.4d %.4d %.4d  ", Counter, pgm_read_word(&VaporABV[Counter]) , epromReadWord(VaporAddress + Counter * 2));
+	lcd.setCursor(0, 1);
+	sprintf(lineBuffer, "%.4x %5.1u %5.1u  ", VaporAddress + Counter * 2,
+			pgm_read_word(&VaporABV[Counter]),
+			epromReadWord(VaporAddress + Counter * 2));
 	lcd.print(lineBuffer);
-
+	lcd.setCursor(cursorPosition, 0);
+	lcd.cursor();
 }
 
 void incCounter() {
-	Counter++;
+	switch(lcd.getCursor()) {
+	case 0:
+		Counter += +0xfff;
+		break;
+	case 1:
+		Counter += 0xff;
+		break;
+	case 2:
+		Counter += 0xf;
+		break;
+	default:
+		Counter++;
+		break;
+	}
 	printTableRow();
 }
 
 void decCounter() {
-	Counter--;
+	switch(lcd.getCursor()) {
+	case 0:
+		Counter -= 0xfff;
+		break;
+	case 1:
+		Counter -= 0xff;
+		break;
+	case 2:
+		Counter -= 0xf;
+		break;
+	default:
+		Counter--;
+		break;
+	}
 	printTableRow();
+}
+
+void prevDigit() {
+	if (lcd.getCursor() > 0)
+		lcd.moveCursorLeft();
+	else lcd.setCursor(3,0);
+}
+
+void nextDigit() {
+	if (lcd.getCursor() < 3)
+		lcd.moveCursorRight();
+	else lcd.setCursor(0,0);
 }
 
 
