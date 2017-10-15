@@ -12,8 +12,9 @@
 #include <SimpleDS1307I2C.h>	//https://github.com/EdwinCroissantArduinoLibraries/SimpleDS1307I2C
 #include <SingleDS18B20.h>		//https://github.com/EdwinCroissantArduinoLibraries/SingleDS18B20
 #include <SMT172.h>				//https://github.com/EdwinCroissantArduinoLibraries/SMT172
-#include "myEnums.h"
 #include "T2ABV_SMT172.h"
+#include "EnumsAndStructs.h"
+#include "MyPinsAndSettings.h"
 
 /* -----------------IMPORTANT-----------------
  * In SdFatConfig.h change
@@ -23,67 +24,66 @@
  * to make the compiled sketch fit into the UNO R3
  */
 
-
-/*----( fixed alarm values )----*/
-const int8_t ForesAlarm = -10;
-const int8_t CondenserAlarmTemperature = 60;
-const float CondenserAlarmDeltaTemperature = 0.5;
-const uint8_t BoilerAlarmPressure = 100;
-
 /*----( strings in flash )----*/
 const char msgSplash1[] PROGMEM = "eParrot  RGB LCD";
-const char msgSplash2[] PROGMEM = "V 0.07 S  (c) EC";
+const char msgSplash2[] PROGMEM = "V 0.08 S  (c) EC";
 const char logFilename[] PROGMEM =  "RUN_00.CSV";
-const char msgNoBaro[] PROGMEM = "No Barometer";
+const char msgNo[] PROGMEM = "No";
 const char msgCanceled[] PROGMEM = "Canceled";
 const char msgSaved[] PROGMEM = "Saved";
 const char msgToLog[] PROGMEM = "Press S to log ";
 const char msgToStop[] PROGMEM = "Press S to stop";
 const char msgNoCard[] PROGMEM = "No card   ";
-const char msgFullCard[] PROGMEM = "Card full ";
+const char msgFullCard[] PROGMEM = "Full card ";
 const char msghPa[] PROGMEM = " hPa";
 const char msgdPa[] PROGMEM = " dPa";
-const char msgBPWater[] PROGMEM = "BP Water";
-const char msgNoValue[] PROGMEM = "--.-%";
-const char msgNoSensor[] PROGMEM = "  Sensor error  ";
+const char msgBaro[] PROGMEM = "Baro";
+const char msgBPWater[] PROGMEM = "BP H2O";
+const char msgNoValueABV[] PROGMEM = "--.-%";
+const char msgNoValueC[] PROGMEM = "---.--";
 const char msgBoilerOffset[] PROGMEM = "Blr Offs";
 const char msgVaporOffset[] PROGMEM = "Vpr Offs";
 const char msgSilent[] PROGMEM = "Silent";
 const char msgAudial[] PROGMEM = "Audial";
 const char msgForesAlarm[] PROGMEM = " FS";
 const char msgFores[] PROGMEM = "FORES";
-const char msgCondenser[] PROGMEM = " Condenser vent";
-const char msgBoilerPressure[] PROGMEM = "Boiler pressure";
+const char msgAlarm[] PROGMEM = "Alarm";
+const char msgHealty[] PROGMEM = "Healthy ";
+const char msgBoiler[] PROGMEM = "Boiler  ";
+const char msgVent1[] PROGMEM = "Vent 1  ";
+const char msgVent2[] PROGMEM = "Vent 2  ";
+
 
 /*----( make instances for the Dallas sensors, BMP280, etc. )----*/
 OneWire pinBoilerSensor(pinBoiler), pinVaporSensor(pinVapor),
-		pinCondenserSensor(pinCondenser);
+		pinVent1Sensor(pinVent1), pinVent2Sensor(pinVent2);
 SingleDS18B20 BoilerDS18B20(&pinBoilerSensor), VaporDS18B20(&pinVaporSensor),
-		CondenserDS18B20(&pinCondenserSensor);
-SimpleBMP280I2C baro(0x77); // for I2C address 0x77 Robotdyn
-// SimpleBMP280I2C baro(0x76); // for I2C address 0x76 Thinary
+		Vent1DS18B20(&pinVent1Sensor), Vent2DS18B20(&pinVent2Sensor);
+SimpleBMP280I2C baro; // autodetect I2C address in setup
 RgbLcdKeyShieldI2C lcd;
 SdFat sd;
 
 /*-----( Declare Variables )-----*/
+
 struct sensors {
 	float BaroPressure;				// in hPa
-//	float BaroTemperature;			// in C
+	float H2OBoilingPoint;			// in C
 	int16_t BoilerPressureRaw;
 	int16_t BoilerPressure;			// in mmH2O (dPa)
-	sensorType VaporType;
-	float VaporTemperature;			// in C
+
+	temperatureSensor Vapor;
 	float VaporABV;					// in %
-	float VaporAlarmSetpoint;		// in C
-	float H2OBoilingPoint;			// in C
-	sensorType BoilerType;
-	float BoilerTemperature;		// in C
+
+	temperatureSensor Boiler;
 	float BoilerABV;				// in %
 	float BoilerLastTemperature;	// in C
 	int16_t WarmupTime;				// in minutes
-	float CondenserLastTemperature;// in C
-	float CondenserTemperature;	// in C
-	sensorType CondenserType;
+
+	temperatureSensor Vent1;
+	float Vent1LastTemperature;		// in C
+
+	temperatureSensor Vent2;
+	float Vent2LastTemperature;		// in C
 } Sensors;
 
 union {
@@ -98,8 +98,8 @@ union {
 } Settings;
 
 alarmStatus AlarmStatusVapor;
-alarmStatus AlarmStatusCondenser;
-alarmStatus AlarmStatusBoiler;
+alarmStatus AlarmStatusHealth;
+healthAlarm HealthAlarm;
 
 struct log {
 	char name[11];
@@ -145,48 +145,50 @@ void dateTime(uint16_t* date, uint16_t* time) {
 	*time = FAT_TIME(rtc.hour, rtc.minute, rtc.second);
 }
 
-// Helper function to initialize the sensors and start the conversion
 void initVaporSensor() {
 	SMT172::startTemperature(0.001);
 	delay(5);
 	if (SMT172::getStatus() != 2) {
-		Sensors.VaporType = smt172;
+		Sensors.Vapor.Type = smt172;
 	} else if (VaporDS18B20.read()) {
 		VaporDS18B20.setResolution(SingleDS18B20::res12bit);
 		VaporDS18B20.convert();
-		Sensors.VaporType = DS18B20;
+		Sensors.Vapor.Type = DS18B20;
 	} else {
 		// disable internal pullup resistor
 		pinMode(pinVapor, INPUT);
 		digitalWrite(pinVapor, LOW);
-		Sensors.VaporType = NoSensor;
+		Sensors.Vapor.Type = NoSensor;
 	}
 }
 
-void initBoilerSensor() {
-	if (BoilerDS18B20.read()) {
-		BoilerDS18B20.setResolution(SingleDS18B20::res12bit);
-		BoilerDS18B20.convert();
-		Sensors.BoilerType = DS18B20;
-	} else
-		Sensors.BoilerType = NoSensor;
+
+// Helper function to initialize the sensor and start the conversion
+// Useful when multiple sensors are used
+
+sensorType initDS18B20(SingleDS18B20 &sensor) {
+	if (sensor.read() && sensor.setResolution(SingleDS18B20::res12bit) && sensor.convert())
+		return DS18B20;
+	else
+		return NoSensor;
 }
 
-void initCondenserSensor() {
-	if (CondenserDS18B20.read()) {
-		CondenserDS18B20.setResolution(SingleDS18B20::res12bit);
-		CondenserDS18B20.convert();
-		Sensors.CondenserType = DS18B20;
-	} else
-		Sensors.CondenserType = NoSensor;
+// Helper function to print the temperature to the lcd
+void printTemp(temperatureSensor &sensor) {
+	if (sensor.Type == NoSensor)
+		lcd.printP(msgNoValueC);
+	else
+		lcd.print(dtostrf(sensor.Temperature, 6, 2, lineBuffer));
+	lcd.print('C');
 }
 
 //The setup function is called once at startup of the sketch
 void setup()
 {
-	// enable pullups for A1, A2
-	pinMode(pinBoilerAlarmDisable, INPUT_PULLUP);
-	pinMode(pinCondenserAlarmDisable, INPUT_PULLUP);
+	// enable pullups
+	pinMode(pinBoilerAlarmEnable, INPUT_PULLUP);
+	pinMode(pinVent1AlarmEnable, INPUT_PULLUP);
+	pinMode(pinVent2AlarmEnable, INPUT_PULLUP);
 
 	I2c.begin();
 	I2c.setSpeed(1);
@@ -194,17 +196,20 @@ void setup()
 	lcd.begin();
 	lcd.setColor(RgbLcdKeyShieldI2C::clWhite);
 
-/* TODO test the alternative address before giving up */
-	if (!baro.begin()) {
-		lcd.printP(msgNoBaro);
-		while (true) {
-		};
-	}
+	if (!baro.begin())
+		if (!baro.begin(0x77)) {
+			lcd.printP(msgNo);
+			lcd.print(' ');
+			lcd.printP(msgBaro);
+			while (true) {
+			};
+		}
 
 	// Initialize the temperature sensors
-	initBoilerSensor();
 	initVaporSensor();
-	initCondenserSensor();
+	Sensors.Boiler.Type = initDS18B20(BoilerDS18B20);
+	Sensors.Vent1.Type = initDS18B20(Vent1DS18B20);
+	Sensors.Vent2.Type = initDS18B20(Vent2DS18B20);
 
 	// show splash
 	lcd.printP(msgSplash1);
@@ -233,11 +238,11 @@ void setup()
 	loadSettings();
 }
 
-void doFunctionAtInterval(void (*callBackFunction)(), uint32_t *lastEvent,
+void doFunctionAtInterval(void (*callBackFunction)(), uint32_t &lastEvent,
 		uint32_t Interval) {
 	uint32_t now = millis();
-	if ((now - *lastEvent) >= Interval) {
-		*lastEvent = now;
+	if ((now - lastEvent) >= Interval) {
+		lastEvent = now;
 		callBackFunction();
 	}
 }
@@ -245,10 +250,10 @@ void doFunctionAtInterval(void (*callBackFunction)(), uint32_t *lastEvent,
 // The loop function is called in an endless loop
 void loop()
 {
-	doFunctionAtInterval(readSMT172, &LastSMT172Update, 250);
-	doFunctionAtInterval(alternateBacklight, &AlternateBacklightUpdate, 500);
-	doFunctionAtInterval(readSensors, &LastSensorUpdate, 1000);	// read the baro and DS18B20's every second
-	doFunctionAtInterval(handleWarmingup, &LastWarmingupUpdate, 60000);	// check warming up every minute
+	doFunctionAtInterval(readSMT172, LastSMT172Update, 250);
+	doFunctionAtInterval(alternateBacklight, AlternateBacklightUpdate, 500);
+	doFunctionAtInterval(readSensors, LastSensorUpdate, 1000);	// read the baro and DS18B20's every second
+	doFunctionAtInterval(handleWarmingup, LastWarmingupUpdate, 60000);	// check warming up every minute
 	lcd.readKeys();
 }
 
@@ -268,33 +273,50 @@ void alternateBacklight() {
 void handleWarmingup() {
 	float DeltaT;
 	// calculate the warmup time
-	if ((Sensors.BoilerType != NoSensor) && (Sensors.BoilerLastTemperature > 0)
-			&& (Sensors.BoilerTemperature < Settings.WarmedUp)) {
-		DeltaT = Sensors.BoilerTemperature - Sensors.BoilerLastTemperature;
+	if ((Sensors.Boiler.Type != NoSensor) && (Sensors.BoilerLastTemperature > 0)
+			&& (Sensors.Boiler.Temperature < Settings.WarmedUp)) {
+		DeltaT = Sensors.Boiler.Temperature - Sensors.BoilerLastTemperature;
 		Sensors.WarmupTime = int16_t(constrain((float(Settings.WarmedUp)
-					- Sensors.BoilerTemperature) / DeltaT + 0.5, 0, 5999));
+					- Sensors.Boiler.Temperature) / DeltaT + 0.5, 0, 5999));
 	} else
 		Sensors.WarmupTime = 0;
 
-	Sensors.BoilerLastTemperature = Sensors.BoilerTemperature;
+	if (Sensors.WarmupTime == 5999)
+		Sensors.WarmupTime = 0;
+
+	Sensors.BoilerLastTemperature = Sensors.Boiler.Temperature;
 }
 
 void handleAlarms() {
-	bool BoilerAlarmCondition;
-	bool CondenserAlarmCondition;
 	bool VaporAlarmCondition;
 
-	// check boiler first
-	BoilerAlarmCondition = digitalRead(pinBoilerAlarmDisable) && Sensors.BoilerPressure > BoilerAlarmPressure;
+	if (digitalRead(pinBoilerAlarmEnable)
+			&& (abs(Sensors.BoilerPressure) > BoilerAlarmPressure))
+		HealthAlarm = healthBoiler;
+	else if (digitalRead(pinVent1AlarmEnable)
+			&& (Sensors.Vent1.Type == NoSensor
+					|| Sensors.Vent1.Temperature > VentAlarmTemperature
+					|| Sensors.Vent1.Temperature
+							- Sensors.Vent1LastTemperature
+							> VentAlarmDeltaTemperature))
+		HealthAlarm = healthVent1;
+	else if (digitalRead(pinVent2AlarmEnable)
+			&& (Sensors.Vent2.Type == NoSensor
+					|| Sensors.Vent2.Temperature > VentAlarmTemperature
+					|| Sensors.Vent2.Temperature
+							- Sensors.Vent2LastTemperature
+							> VentAlarmDeltaTemperature))
+		HealthAlarm = healthVent2;
+	else HealthAlarm = healthOk;
 
-	switch (AlarmStatusBoiler) {
+	switch (AlarmStatusHealth) {
 	case disabled:
-			AlarmStatusBoiler = armed;
+			AlarmStatusHealth = armed;
 		break;
 	case armed:
-		if (BoilerAlarmCondition) {
-			AlarmStatusBoiler = triggered;
-			showBoilerPressureAlarmInit();
+		if (HealthAlarm != healthOk) {
+			AlarmStatusHealth = triggered;
+			showHealthInit();
 		}
 		break;
 	case triggered:
@@ -303,54 +325,16 @@ void handleAlarms() {
 		break;
 	case acknowledged:
 		FlashBacklight = false;
-		if (BoilerAlarmCondition)
+		if (HealthAlarm != healthOk)
 			lcd.setColor(RgbLcdKeyShieldI2C::clRed);
 		else {
-			AlarmStatusBoiler = armed;
+			AlarmStatusHealth = armed;
 			lcd.setColor(RgbLcdKeyShieldI2C::clWhite);
-			showMainInit();
 			}
 		break;
 	}
 
-	if (BoilerAlarmCondition)
-		return;
-
-	// check condenser second
-	CondenserAlarmCondition = digitalRead(pinCondenserAlarmDisable)
-			&& (Sensors.CondenserType == NoSensor
-					|| Sensors.CondenserTemperature > CondenserAlarmTemperature
-					|| Sensors.CondenserTemperature
-							- Sensors.CondenserLastTemperature
-							> CondenserAlarmDeltaTemperature);
-
-	switch (AlarmStatusCondenser) {
-	case disabled:
-			AlarmStatusCondenser = armed;
-		break;
-	case armed:
-		if (CondenserAlarmCondition) {
-			AlarmStatusCondenser = triggered;
-			showCondenserFailureInit();
-		}
-		break;
-	case triggered:
-		tone(pinBeeper, 440, 500);
-		FlashBacklight = true;
-		break;
-	case acknowledged:
-		FlashBacklight = false;
-		if (CondenserAlarmCondition)
-			lcd.setColor(RgbLcdKeyShieldI2C::clRed);
-		else {
-			AlarmStatusCondenser = armed;
-			lcd.setColor(RgbLcdKeyShieldI2C::clWhite);
-			showMainInit();
-			}
-		break;
-	}
-
-	if (CondenserAlarmCondition)
+	if (HealthAlarm != healthOk)
 		return;
 
 	VaporAlarmCondition = ((Sensors.VaporABV >= 0 && CurrentAlarm < 4
@@ -384,38 +368,37 @@ void handleAlarms() {
 	}
 }
 
-int16_t calibratedAnalogInMilliVolt(int16_t value) {
-	/* Measure internal reference */
-	ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-	delay(2); // Wait for Vref (+/- 1.1V) to settle
-	ADCSRA |= _BV(ADSC); // Start conversion
-	while (bit_is_set(ADCSRA,ADSC)); // measuring
-	uint8_t low  = ADCL; // read ADCL first, this locks ADCH
-	uint8_t high = ADCH; // unlocks both
-	int32_t Vref = (high<<8) | low;
-	return (1100L * value) / Vref;
-}
-
 void readSMT172() {
-	if (Sensors.VaporType == smt172) {
+	if (Sensors.Vapor.Type == smt172) {
 		switch (SMT172::getStatus()) {
 		case 0:
 			break;
 		case 1:
-			Sensors.VaporTemperature = SMT172::getTemperature()
+			Sensors.Vapor.Temperature = SMT172::getTemperature()
 					+ float(Settings.VaporOffset) / 100;
-			Sensors.VaporABV = TtoVaporABV(Sensors.VaporTemperature,
+			Sensors.VaporABV = TtoVaporABV(Sensors.Vapor.Temperature,
 							Sensors.BaroPressure);
 			SMT172::startTemperature(0.001);
 			break;
 		case 2:
-			Sensors.VaporType = NoSensor;
+			Sensors.Vapor.Type = NoSensor;
 		}
 	}
 	if (AutoPageFastRefresh)
 		AutoPageFastRefresh();
 }
 
+bool readDS18B20(temperatureSensor &sensor, int16_t offset,
+		SingleDS18B20 &DS18B20Sensor) {
+	if (sensor.Type == DS18B20) {
+		if (DS18B20Sensor.read() && DS18B20Sensor.convert()) {
+			sensor.Temperature = DS18B20Sensor.getTempAsC() + float(offset) / 100;
+			return true;
+		} else
+			sensor.Type = NoSensor;
+	}
+	return false;
+}
 
 void readSensors() {
 	// Retrieve the current pressure in Pascal.
@@ -427,45 +410,35 @@ void readSensors() {
 	 * TODO make calibration possible, the sensor output is 1V for each kPa,
 	 * but the internal reference can deviate up to 10%
 	 */
-	Sensors.BoilerPressureRaw = calibratedAnalogInMilliVolt(analogRead(pinBoilerPressure));
-	Sensors.BoilerPressure = (Sensors.BoilerPressureRaw - Settings.BoilerPressureOffset) / 10 ;
+	Sensors.BoilerPressureRaw = analogRead(pinBoilerPressure);
+	Sensors.BoilerPressure = (Sensors.BoilerPressureRaw - Settings.BoilerPressureOffset) / 2 ;
 
-	if (Sensors.VaporType == DS18B20) {
-		if (VaporDS18B20.read() && VaporDS18B20.convert()) {
-			Sensors.VaporTemperature = VaporDS18B20.getTempAsC()
-					+ float(Settings.VaporOffset) / 100;
-			Sensors.VaporABV = TtoVaporABV(Sensors.VaporTemperature,
+
+	if (readDS18B20(Sensors.Vapor, Settings.VaporOffset, VaporDS18B20))
+		Sensors.VaporABV = TtoVaporABV(Sensors.Vapor.Temperature,
+									Sensors.BaroPressure);
+
+	if (readDS18B20(Sensors.Boiler, Settings.BoilerOffset, BoilerDS18B20))
+		Sensors.BoilerABV = TtoLiquidABV(Sensors.Boiler.Temperature,
 							Sensors.BaroPressure);
-		} else
-			Sensors.VaporType = NoSensor;
-	}
 
-	if (Sensors.BoilerType == DS18B20) {
-		if (BoilerDS18B20.read() && BoilerDS18B20.convert()) {
-			Sensors.BoilerTemperature = BoilerDS18B20.getTempAsC()
-					+ float(Settings.BoilerOffset) / 100;
-			Sensors.BoilerABV = TtoLiquidABV(Sensors.BoilerTemperature,
-							Sensors.BaroPressure);
-		} else
-			Sensors.BoilerType = NoSensor;
-	}
+	Sensors.Vent1LastTemperature = Sensors.Vent1.Temperature;
+	readDS18B20(Sensors.Vent1, 0, Vent1DS18B20);
 
-	if (Sensors.CondenserType == DS18B20) {
-		if (CondenserDS18B20.read() && CondenserDS18B20.convert()) {
-			Sensors.CondenserLastTemperature = Sensors.CondenserTemperature;
-			Sensors.CondenserTemperature = CondenserDS18B20.getTempAsC();
-		} else
-			Sensors.CondenserType = NoSensor;
-	}
+	Sensors.Vent2LastTemperature = Sensors.Vent2.Temperature;
+	readDS18B20(Sensors.Vent2, 0, Vent2DS18B20);
 
-	if (Sensors.VaporType == NoSensor)
+	if (Sensors.Vapor.Type == NoSensor)
 		initVaporSensor();
 
-	if (Sensors.BoilerType == NoSensor)
-		initBoilerSensor();
+	if (Sensors.Boiler.Type == NoSensor)
+		Sensors.Boiler.Type = initDS18B20(BoilerDS18B20);
 
-	if (Sensors.CondenserType == NoSensor)
-		initCondenserSensor();
+	if (Sensors.Vent1.Type == NoSensor)
+		Sensors.Vent1.Type = initDS18B20(Vent1DS18B20);
+
+	if (Sensors.Vent2.Type == NoSensor)
+		Sensors.Vent2.Type = initDS18B20(Vent2DS18B20);
 
 	if (AutoPageRefresh)
 		AutoPageRefresh();
@@ -517,22 +490,25 @@ bool writeDataToFile() {
 		dataFile.print(',');
 		dataFile.print(Settings.BoilerOffset, DEC);
 		dataFile.print(',');
-		if (Sensors.BoilerType != NoSensor)
-			dataFile.print(Sensors.BoilerTemperature,2);
+		if (Sensors.Boiler.Type != NoSensor)
+			dataFile.print(Sensors.Boiler.Temperature,2);
 		dataFile.print(',');
 		if (Sensors.BoilerABV > 0)
 			dataFile.print(Sensors.BoilerABV,1);
 		dataFile.print(',');
 		dataFile.print(Settings.VaporOffset, DEC);
 		dataFile.print(',');
-		if (Sensors.VaporType != NoSensor)
-			dataFile.print(Sensors.VaporTemperature,2);
+		if (Sensors.Vapor.Type != NoSensor)
+			dataFile.print(Sensors.Vapor.Temperature,2);
 		dataFile.print(',');
 		if (Sensors.VaporABV > 0)
 			dataFile.print(Sensors.VaporABV,1);
 		dataFile.print(',');
-		if (Sensors.CondenserType != NoSensor)
-			dataFile.print(Sensors.CondenserTemperature,2);
+		if (Sensors.Vent1.Type != NoSensor)
+			dataFile.print(Sensors.Vent1.Temperature,2);
+		dataFile.print(',');
+		if (Sensors.Vent2.Type != NoSensor)
+			dataFile.print(Sensors.Vent2.Temperature,2);
 		dataFile.println();
 		dataFile.close();
 		return true;
@@ -631,7 +607,11 @@ void showMainInit() {
 	lcd.noCursor();
 	lcd.clearKeys();
 	lcd.keyUp.onShortPress = showAlarmsInit;
-	lcd.keyDown.onShortPress = showBaroInit;
+	if (digitalRead(pinBoilerAlarmEnable) || digitalRead(pinVent1AlarmEnable)
+			|| digitalRead(pinVent2AlarmEnable))
+		lcd.keyDown.onShortPress = showHealthInit;
+	else
+		lcd.keyDown.onShortPress = showBaroInit;
 	lcd.keyRight.onShortPress = nextAlarm;
 	lcd.keyRight.onRepPress = nextAlarm;
 	lcd.keyLeft.onShortPress = prevAlarm;
@@ -686,12 +666,10 @@ void toggleSilent() {
 }
 
 void printVaporValues() {
-	lcd.print(dtostrf(Sensors.VaporTemperature, 6, 2, lineBuffer));
-	lcd.print('C');
+	printTemp(Sensors.Vapor);
 	lcd.print(' ');
-	if (Sensors.VaporABV < ForesAlarm) {
-		lcd.printP(msgNoValue);
-	}
+	if (Sensors.Vapor.Type == NoSensor || Sensors.VaporABV < ForesAlarm)
+		lcd.printP(msgNoValueABV);
 	else if (Sensors.VaporABV < 0)
 		lcd.printP(msgFores);
 	else {
@@ -706,11 +684,15 @@ void printVaporValues() {
 }
 
 void printBoilerValues() {
-	lcd.print(dtostrf(Sensors.BoilerTemperature, 6, 2, lineBuffer));
-	lcd.print('C');
+	printTemp(Sensors.Boiler);
 	lcd.print(' ');
-	if (Sensors.BoilerABV < 0)
-		lcd.printP(msgNoValue);
+	if (Sensors.WarmupTime > 0) {
+		sprintf(lineBuffer, "%.2hd:%.2hd %.2hd", Sensors.WarmupTime / 60,
+				Sensors.WarmupTime % 60, Settings.WarmedUp);
+		lcd.print(lineBuffer);
+	}
+	else if (Sensors.Boiler.Type == NoSensor || Sensors.BoilerABV < 0)
+		lcd.printP(msgNoValueABV);
 	else {
 		lcd.print(dtostrf(Sensors.BoilerABV, 4, 1, lineBuffer));
 		lcd.print('%');
@@ -720,43 +702,17 @@ void printBoilerValues() {
 	}
 }
 
-void printRemainingTime() {
-	lcd.print(dtostrf(Sensors.BoilerTemperature, 6, 2, lineBuffer));
-	sprintf(lineBuffer, "C %.2hd:%.2hd %.2hd", Sensors.WarmupTime / 60 , Sensors.WarmupTime % 60, Settings.WarmedUp);
-	lcd.print(lineBuffer);
-}
-
 void showMainRefresh() {
-	switch (Sensors.VaporType) {
-		case DS18B20:
-			lcd.setCursor(0, 0);
-			printVaporValues();
-			break;
-		case NoSensor:
-			lcd.setCursor(0, 0);
-			lcd.printP(msgNoSensor);
-			break;
-		default:
-			break;
+	if (Sensors.Vapor.Type != smt172) {
+		lcd.setCursor(0, 0);
+		printVaporValues();
 	}
 	lcd.setCursor(0, 1);
-	switch (Sensors.BoilerType) {
-		case DS18B20:
-			if (Sensors.WarmupTime > 0)
-				printRemainingTime();
-			else
-				printBoilerValues();
-			break;
-		case NoSensor:
-			lcd.printP(msgNoSensor);
-			break;
-		default:
-			break;
-	}
+	printBoilerValues();
 }
 
 void showMainRefreshFast() {
-	if (Sensors.VaporType == smt172) {
+	if (Sensors.Vapor.Type == smt172) {
 		lcd.setCursor(0, 0);
 		printVaporValues();
 	}
@@ -766,7 +722,11 @@ void showBaroInit() {
 	lcd.clear();
 	lcd.noCursor();
 	lcd.clearKeys();
-	lcd.keyUp.onShortPress = showMainInit;
+	if (digitalRead(pinBoilerAlarmEnable) || digitalRead(pinVent1AlarmEnable)
+			|| digitalRead(pinVent2AlarmEnable))
+		lcd.keyUp.onShortPress = showHealthInit;
+	else
+		lcd.keyUp.onShortPress = showMainInit;
 	lcd.keyDown.onShortPress = showTimeInit;
 	lcd.keySelect.onLongPress = zeroBoilerPressure;
 	ReturnPage = showBaroInit;
@@ -783,15 +743,16 @@ void zeroBoilerPressure() {
 
 void showBaroRefresh() {
 	lcd.setCursor(0,0);
+	lcd.printP(msgBaro);
+	lcd.setCursor(8,0);
 	lcd.print(dtostrf(Sensors.BaroPressure, 4, 0, lineBuffer));
 	lcd.printP(msghPa);
-	lcd.print(dtostrf(Sensors.BoilerPressure, 4, 0, lineBuffer));
-	lcd.printP(msgdPa);
 
 	lcd.setCursor(0,1);
 	lcd.printP(msgBPWater);
+	lcd.setCursor(8,1);
 	lcd.print(dtostrf(Sensors.H2OBoilingPoint, 6, 2, lineBuffer));
-	lcd.moveCursorRight();
+	lcd.print(' ');
 	lcd.print('C');
 }
 void showTimeInit() {
@@ -877,14 +838,15 @@ void showLogStatusInit() {
 	lcd.clear();
 	lcd.noCursor();
 	lcd.clearKeys();
+
 	if (LogFile.isLogging) {
-		lcd.setCursor(0,0);
-		lcd.print(LogFile.name);
 		lcd.setCursor(0,1);
+		lcd.print(LogFile.name);
+		lcd.setCursor(0,0);
 		lcd.printP(msgToStop);
 	}
 	else {
-		lcd.setCursor(0,1);
+		lcd.setCursor(0,0);
 		lcd.printP(msgToLog);
 	}
 	lcd.keyUp.onShortPress = showTimeInit;;
@@ -1209,51 +1171,59 @@ void setAlarms() {
 	printSave();
 }
 
-void showBoilerPressureAlarmInit() {
+void showHealthInit() {
 	lcd.clear();
 	lcd.noCursor();
-	lcd.printP(msgBoilerPressure);
 	lcd.clearKeys();
-	lcd.keySelect.onShortPress = acknowledgeBoilerAlarm;
-	AutoPageRefresh = showBoilerPressureRefresh;
+	if (AlarmStatusHealth != triggered) {
+		lcd.keyUp.onShortPress = showMainInit;
+		lcd.keyDown.onShortPress = showBaroInit;
+	}
+	lcd.keySelect.onShortPress = acknowledgeHealthAlarm;
+	lcd.keySelect.onLongPress = zeroBoilerPressure;
+	AutoPageRefresh = showHealthRefresh;
 	AutoPageFastRefresh = nullptr;
+	ReturnPage = showHealthInit;
+	showHealthRefresh();
 }
 
-void showBoilerPressureRefresh() {
-	lcd.setCursor(4,1);
-	lcd.print(dtostrf(Sensors.BoilerPressure, 4, 0, lineBuffer));
-	lcd.printP(msgdPa);
-}
-
-void showCondenserFailureInit() {
-	lcd.clear();
-	lcd.noCursor();
-	lcd.printP(msgCondenser);
-	lcd.clearKeys();
-	lcd.keySelect.onShortPress = acknowledgeCondenserAlarm;
-	AutoPageRefresh = showCondenserFailureRefresh;
-	AutoPageFastRefresh = nullptr;
-}
-
-void showCondenserFailureRefresh() {
-	lcd.setCursor(0,1);
-	if (Sensors.CondenserType == NoSensor)
-		lcd.printP(msgNoSensor);
-	else {
-		lcd.setCursor(3,1);
-		lcd.print(dtostrf(Sensors.CondenserTemperature, 6, 2, lineBuffer));
-		lcd.print('C');
+void showHealthRefresh() {
+	lcd.setCursor(0, 0);
+	switch (HealthAlarm) {
+	case healthOk:
+		lcd.printP(msgHealty);
+		break;
+	case healthBoiler:
+		lcd.printP(msgBoiler);
+		break;
+	case healthVent1:
+		lcd.printP(msgVent1);
+		break;
+	case healthVent2:
+		lcd.printP(msgVent2);
+		break;
+	}
+	if (digitalRead(pinBoilerAlarmEnable)) {
+		lcd.setCursor(8, 0);
+		lcd.print(dtostrf(Sensors.BoilerPressure, 4, 0, lineBuffer));
+		lcd.printP(msgdPa);
+	}
+	if (digitalRead(pinVent1AlarmEnable)) {
+		lcd.setCursor(0, 1);
+		printTemp(Sensors.Vent1);
+	}
+	if (digitalRead(pinVent2AlarmEnable)) {
+		lcd.setCursor(9, 1);
+		printTemp(Sensors.Vent2);
 	}
 }
 
-void acknowledgeCondenserAlarm() {
-	if (AlarmStatusCondenser == triggered)
-		AlarmStatusCondenser = acknowledged;
-}
-
-void acknowledgeBoilerAlarm() {
-	if (AlarmStatusBoiler == triggered)
-		AlarmStatusBoiler = acknowledged;
+void acknowledgeHealthAlarm() {
+	if (AlarmStatusHealth == triggered) {
+		AlarmStatusHealth = acknowledged;
+		lcd.keyUp.onShortPress = showMainInit;
+		lcd.keyDown.onShortPress = showBaroInit;
+	}
 }
 
 

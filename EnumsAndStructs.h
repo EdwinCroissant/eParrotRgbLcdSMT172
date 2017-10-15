@@ -4,28 +4,14 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef MYENUMS_H_
-#define MYENUMS_H_
+#ifndef ENUMSANDSTRUCTS_H_
+#define ENUMSANDSTRUCTS_H_
+#include <SingleDS18B20.h>		//https://github.com/EdwinCroissantArduinoLibraries/SingleDS18B20
 
 /*
- * To use enumerated types as parameters for functions the
- * declaration must be done in a separate header file.
+ * To use enumerated types and structures as parameters for functions
+ * their declarations must be done in a separate header file.
  */
-
-
-/*----( pin assignments )----*/
-
-enum pins {
-	pinBeeper = 2,	// Passive beeper use tone library
-	pinLed = 13,
-	pinBoilerPressure = A0,	// MPXV7002DP or equivalent
-	pinBoilerAlarmDisable = A1,
-	pinCondenserAlarmDisable = A2,
-	pinCondenser = 6,		// DS18B20 Only
-	pinBoiler = 7,			// DS18B20 Only
-	pinVapor = 8,			// DS18B20 Only
-	pinCS = 9,				// SD card cs
-};
 
 /*----( Recognizable names for the sensor types )----*/
 enum sensorType {
@@ -49,4 +35,16 @@ enum alarmStatus {
 	acknowledged
 };
 
-#endif /* MYENUMS_H_ */
+enum healthAlarm {
+	healthOk,
+	healthBoiler,
+	healthVent1,
+	healthVent2
+};
+
+struct temperatureSensor {
+	sensorType Type;
+	float Temperature;
+};
+
+#endif /* ENUMSANDSTRUCTS_H_ */
