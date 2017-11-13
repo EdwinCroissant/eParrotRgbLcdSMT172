@@ -21,10 +21,12 @@ enum sensorType {
 };
 
 /*----( Recognizable names for Sd status )----*/
-enum createStatus {
+enum logStatus {
+	notLogging,
 	noCard,
 	fullCard,
-	fileOk
+	fileOk,
+	fileError
 };
 
 /*----( Recognizable names for the alarm status )----*/

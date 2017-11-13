@@ -26,15 +26,16 @@
 
 /*----( strings in flash )----*/
 const char msgSplash1[] PROGMEM = "eParrot  RGB LCD";
-const char msgSplash2[] PROGMEM = "V 0.08 S  (c) EC";
+const char msgSplash2[] PROGMEM = "V 0.09 S  (c) EC";
 const char logFilename[] PROGMEM =  "RUN_00.CSV";
 const char msgNo[] PROGMEM = "No";
 const char msgCanceled[] PROGMEM = "Canceled";
 const char msgSaved[] PROGMEM = "Saved";
-const char msgToLog[] PROGMEM = "Press S to log ";
+const char msgToLog[] PROGMEM = "Press S to log";
 const char msgToStop[] PROGMEM = "Press S to stop";
-const char msgNoCard[] PROGMEM = "No card   ";
-const char msgFullCard[] PROGMEM = "Full card ";
+const char msgNoCard[] PROGMEM = "No card";
+const char msgFullCard[] PROGMEM = "Full card";
+const char msgFileError[] PROGMEM = "File error";
 const char msghPa[] PROGMEM = " hPa";
 const char msgdPa[] PROGMEM = " dPa";
 const char msgBaro[] PROGMEM = "Baro";
@@ -103,7 +104,7 @@ healthAlarm HealthAlarm;
 
 struct log {
 	char name[11];
-	bool isLogging;
+	logStatus status;
 } LogFile;
 
 char lineBuffer[20];
@@ -443,13 +444,13 @@ void readSensors() {
 	if (AutoPageRefresh)
 		AutoPageRefresh();
 
-	if (LogFile.isLogging)
-		LogFile.isLogging = writeDataToFile();
-
+	if (LogFile.status == fileOk)
+		if (!writeDataToFile())
+			LogFile.status = fileError;
 	handleAlarms();
 }
 
-createStatus createFile() {
+logStatus createFile() {
 	strcpy_P(LogFile.name, logFilename);
 	if (!sd.begin(pinCS, SPI_QUARTER_SPEED))
 		return noCard;
@@ -835,20 +836,7 @@ void setTime() {
 }
 
 void showLogStatusInit() {
-	lcd.clear();
-	lcd.noCursor();
-	lcd.clearKeys();
-
-	if (LogFile.isLogging) {
-		lcd.setCursor(0,1);
-		lcd.print(LogFile.name);
-		lcd.setCursor(0,0);
-		lcd.printP(msgToStop);
-	}
-	else {
-		lcd.setCursor(0,0);
-		lcd.printP(msgToLog);
-	}
+	showLogStatus();
 	lcd.keyUp.onShortPress = showTimeInit;;
 	lcd.keyDown.onShortPress = showOffsetVaporInit;
 	lcd.keySelect.onShortPress = toggleLogging;
@@ -856,32 +844,39 @@ void showLogStatusInit() {
 	AutoPageFastRefresh = nullptr;
 }
 
-void toggleLogging () {
-	if (LogFile.isLogging) {
-		LogFile.isLogging = false;
-		lcd.setCursor(0,0);
-		for (int i = 0; i < 11; ++i) {
-			lcd.print(' ');
-		};
-		lcd.setCursor(0,1);
-		lcd.printP(msgToLog);
-	} else {
-		lcd.setCursor(0,0);
-		switch (createFile()) {
-			case noCard:
-				lcd.printP(msgNoCard);
-				break;
-			case fullCard:
-				lcd.printP(msgFullCard);
-				break;
-			case fileOk:
-				lcd.print(LogFile.name);
-				LogFile.isLogging = true;
-				lcd.setCursor(0,1);
-				lcd.printP(msgToStop);
-				break;
-		}
+void showLogStatus() {
+	lcd.clear();
+	lcd.noCursor();
+	switch (LogFile.status) {
+		case notLogging:
+			lcd.printP(msgToLog);
+			break;
+		case noCard:
+			lcd.printP(msgNoCard);
+			break;
+		case fullCard:
+			lcd.printP(msgFullCard);
+			break;
+		case fileOk:
+			lcd.print(LogFile.name);
+			break;
+		case fileError:
+			lcd.printP(msgFileError);
+			break;
 	}
+
+	if (LogFile.status != notLogging) {
+		lcd.setCursor(0,1);
+		lcd.printP(msgToStop);
+	}
+}
+
+void toggleLogging() {
+	if (LogFile.status == notLogging)
+		LogFile.status = createFile();
+	else
+		LogFile.status = notLogging;
+	showLogStatus();
 }
 
 void showOffsetVaporInit() {
@@ -897,6 +892,7 @@ void showOffsetVaporInit() {
 	lcd.keySelect.onShortPress = offsetKeyRemap;
 	ReturnPage = showOffsetVaporInit;
 	AutoPageFastRefresh = showOffsetVaporRefresh;
+	AutoPageRefresh = nullptr;
 	oldOffset = Settings.VaporOffset;
 	offset = &Settings.VaporOffset;
 	PrintOffset = printOffsetVapor;

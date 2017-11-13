@@ -20,7 +20,8 @@ enum pins {
 	pinVent1 = 6,				// DS18B20 Only
 	pinBoiler = 7,				// DS18B20 Only
 	pinVapor = 8,				// SMT172 or DS18B20
-	pinCS = 9,					// SD card cs
+	pinCS = 9,					// SD card cs Robotdyn Data Logger shield
+//	pinCS = 10					// SD card cs Deek-Robot Data logging shield V1.0
 };
 
 /* ---( compiled settings )--- */
