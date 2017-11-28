@@ -26,7 +26,7 @@
 
 /*----( strings in flash )----*/
 const char msgSplash1[] PROGMEM = "eParrot  RGB LCD";
-const char msgSplash2[] PROGMEM = "V 0.09 S  (c) EC";
+const char msgSplash2[] PROGMEM = "V 0.10 S  (c) EC";
 const char logFilename[] PROGMEM =  "RUN_00.CSV";
 const char msgNo[] PROGMEM = "No";
 const char msgCanceled[] PROGMEM = "Canceled";
@@ -366,6 +366,13 @@ void handleAlarms() {
 			AlarmStatusVapor = armed;
 		lcd.setColor(RgbLcdKeyShieldI2C::clRed);
 		break;
+	}
+
+	if (LogFile.status == fileError) {
+		FlashBacklight = true;
+		if (!Silent)
+			tone(pinBeeper, 440, 500);
+		showLogStatusInit();
 	}
 }
 

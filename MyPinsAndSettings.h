@@ -7,6 +7,20 @@
 #ifndef MYPINSANDSETTINGS_H_
 #define MYPINSANDSETTINGS_H_
 
+/* -----------------IMPORTANT-----------------
+ * In SdFatConfig.h change
+ * #define USE_LONG_FILE_NAMES 1
+ * into
+ * #define USE_LONG_FILE_NAMES 0
+ * to make the compiled sketch fit into the UNO R3
+ */
+
+/* -----------------IMPORTANT-----------------
+ * Remove pin 9 from the LCD RGB 16x2 Keypad Shield when using the
+ * Robotdyn Data logger shield as this pin is connected to the LCD
+ * contrast trimmer.
+ */
+
 /*----( pin assignments )----*/
 
 enum pins {
@@ -16,9 +30,9 @@ enum pins {
 	pinVent2AlarmEnable = A1,	// high is enabled, low is disabled
 	pinVent1AlarmEnable = A2,	// high is enabled, low is disabled
 	pinBoilerPressure = A3,		// MPXV7002DP or equivalent
-	pinVent2 = 5,				// DS18B20 Only
-	pinVent1 = 6,				// DS18B20 Only
-	pinBoiler = 7,				// DS18B20 Only
+	pinVent2 = 5,				// DS18B20 only
+	pinVent1 = 6,				// DS18B20 only
+	pinBoiler = 7,				// DS18B20 only
 	pinVapor = 8,				// SMT172 or DS18B20
 	pinCS = 9,					// SD card cs Robotdyn Data Logger shield
 //	pinCS = 10					// SD card cs Deek-Robot Data logging shield V1.0
