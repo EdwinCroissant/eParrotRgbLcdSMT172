@@ -21,6 +21,16 @@
 #ifndef T2ABV_SMT172_H_
 #define T2ABV_SMT172_H_
 
+/*
+ * -----Experimental-----
+ * The vapor from a boiling water ethanol mixture is superheated.
+ * In a CM still however the vapor after passing the reflux condenser is
+ * no longer superheated, resulting in a lower temperature.
+ * #define HOTVAPOR 0 deals with this situation.
+ */
+
+#define HOTVAPOR 1
+
 float h2oBoilingPoint(float p) {
 	// calculate the the boiling temperature of water for the measured pressure in Celsius
 	float H2OInKelvin = -20330000 * 373.15
@@ -52,6 +62,8 @@ uint16_t eeRead16(uint16_t address) {
 	return value.as16;
 }
 
+#if HOTVAPOR == 1
+
 float TtoLiquidABV(float T, float P) {
 	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
 	// starting point of the table) in °cC
@@ -69,5 +81,27 @@ float TtoVaporABV(float T, float P) {
 	if (IndexABV + 7818 > 10000) return 0; // Above 100 °C
 	return float(eeRead16( 0x110E + IndexABV * 2)) / 10;
 };
+
+#else
+
+float TtoLiquidABV(float T, float P) {
+	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
+	// starting point of the table) in °cC
+	int16_t IndexABV = int16_t((T + 100 - h2oBoilingPoint(P)) * 100 + 0.5) - 7818;
+	if (IndexABV < 0) return float(IndexABV) * 0.01; // Below azeotrope
+	if (IndexABV + 7818 > 10000) return 0; // Above 100 °C
+	return float(eeRead16( 0 + IndexABV * 2)) / 10;
+};
+
+float TtoVaporABV(float T, float P) {
+	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
+	// starting point of the table) in °cC
+	int16_t IndexABV = int16_t((T + 78.174 - azeotrope(P)) * 100 + 0.5) - 7818;
+	if (IndexABV < 0) return float(IndexABV) * 0.01; // Below azeotrope
+	if (IndexABV + 7818 > 10000) return 0; // Above 100 °C
+	return float(eeRead16( 0 + IndexABV * 2)) / 10;
+};
+
+#endif /* HOTVAPOR */
 
 #endif /* T2ABV_SMT172_H_ */

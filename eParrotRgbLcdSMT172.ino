@@ -26,7 +26,7 @@
 
 /*----( strings in flash )----*/
 const char msgSplash1[] PROGMEM = "eParrot  RGB LCD";
-const char msgSplash2[] PROGMEM = "V 0.10 S  (c) EC";
+const char msgSplash2[] PROGMEM = "V 0.11 S  (c) EC";
 const char logFilename[] PROGMEM =  "RUN_00.CSV";
 const char msgNo[] PROGMEM = "No";
 const char msgCanceled[] PROGMEM = "Canceled";
@@ -146,20 +146,20 @@ void dateTime(uint16_t* date, uint16_t* time) {
 	*time = FAT_TIME(rtc.hour, rtc.minute, rtc.second);
 }
 
-void initVaporSensor() {
+sensorType initVaporSensor() {
 	SMT172::startTemperature(0.001);
 	delay(5);
 	if (SMT172::getStatus() != 2) {
-		Sensors.Vapor.Type = smt172;
+		return smt172;
 	} else if (VaporDS18B20.read()) {
 		VaporDS18B20.setResolution(SingleDS18B20::res12bit);
 		VaporDS18B20.convert();
-		Sensors.Vapor.Type = DS18B20;
+		return DS18B20;
 	} else {
 		// disable internal pullup resistor
 		pinMode(pinVapor, INPUT);
 		digitalWrite(pinVapor, LOW);
-		Sensors.Vapor.Type = NoSensor;
+		return NoSensor;
 	}
 }
 
@@ -191,12 +191,14 @@ void setup()
 	pinMode(pinVent1AlarmEnable, INPUT_PULLUP);
 	pinMode(pinVent2AlarmEnable, INPUT_PULLUP);
 
+	// initialize lcd
 	I2c.begin();
 	I2c.setSpeed(1);
 	I2c.timeOut(10);
 	lcd.begin();
 	lcd.setColor(RgbLcdKeyShieldI2C::clWhite);
 
+	// test barometer
 	if (!baro.begin())
 		if (!baro.begin(0x77)) {
 			lcd.printP(msgNo);
@@ -206,8 +208,26 @@ void setup()
 			};
 		}
 
+	// check if time is set
+	if (!rtc.readClock()) {
+		rtc.clearRam();
+		rtc.year = 18;
+		rtc.month = 1;
+		rtc.day = 1;
+		rtc.hour = 0;
+		rtc.minute = 0;
+		rtc.second = 0;
+		ReturnPage = nullptr; // reboot when done
+		setTimeInit();
+		while (true) {
+			lcd.readKeys();
+		};
+	}
+
+	loadSettings();
+
 	// Initialize the temperature sensors
-	initVaporSensor();
+	Sensors.Vapor.Type = initVaporSensor();
 	Sensors.Boiler.Type = initDS18B20(BoilerDS18B20);
 	Sensors.Vent1.Type = initDS18B20(Vent1DS18B20);
 	Sensors.Vent2.Type = initDS18B20(Vent2DS18B20);
@@ -222,21 +242,7 @@ void setup()
 	readSensors();
 	LastSensorUpdate=millis();
 
-	// check if time is set
-	if (!rtc.readClock()) {
-		rtc.clearRam();
-		rtc.year = 17;
-		rtc.month = 1;
-		rtc.day = 1;
-		rtc.hour = 12;
-		rtc.minute = 0;
-		rtc.second = 0;
-		ReturnPage = showTimeInit;
-		setTimeInit();
-	} else
-		showMainInit();
-
-	loadSettings();
+	showMainInit();
 }
 
 void doFunctionAtInterval(void (*callBackFunction)(), uint32_t &lastEvent,
@@ -437,7 +443,7 @@ void readSensors() {
 	readDS18B20(Sensors.Vent2, 0, Vent2DS18B20);
 
 	if (Sensors.Vapor.Type == NoSensor)
-		initVaporSensor();
+		Sensors.Vapor.Type = initVaporSensor();
 
 	if (Sensors.Boiler.Type == NoSensor)
 		Sensors.Boiler.Type = initDS18B20(BoilerDS18B20);
