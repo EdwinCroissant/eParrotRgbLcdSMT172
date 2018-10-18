@@ -21,7 +21,19 @@
  * contrast trimmer.
  */
 
+/* -----------------IMPORTANT-----------------
+ * To use a Nano flash it first with a Uno bootloader otherwise
+ * the program does not fit.
+ */
+
 /*----( pin assignments )----*/
+
+/*
+ * With COOLING defined the Vent2 sensor can be used for
+ * monitoring the cooling water outlet otherwise
+ * comment line out.
+ */
+#define COOLING
 
 enum pins {
 	pinBeeper = 2,	// Passive beeper use tone library
@@ -44,5 +56,9 @@ const int8_t ForesAlarm = -10; // 10 C below azeotrope
 const int8_t VentAlarmTemperature = 60;
 const float VentAlarmDeltaTemperature = 0.5;
 const uint8_t BoilerAlarmPressure = 100;
+#ifdef COOLING
+	const int8_t CoolingAlarmTemperature = 60;
+#endif
+
 
 #endif /* MYPINSANDSETTINGS_H_ */

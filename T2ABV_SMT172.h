@@ -24,9 +24,11 @@
 /*
  * -----Experimental-----
  * The vapor from a boiling water ethanol mixture is superheated.
- * In a CM still however the vapor after passing the reflux condenser is
+ * In a CM still the vapor after passing the reflux condenser is
  * no longer superheated, resulting in a lower temperature.
- * #define HOTVAPOR 0 deals with this situation.
+ * #define HOTVAPOR 0 when the temperature sensor is placed after the
+ * reflux condenser. Please note that at full reflux the vapor
+ * temperature is lost.
  */
 
 #define HOTVAPOR 1

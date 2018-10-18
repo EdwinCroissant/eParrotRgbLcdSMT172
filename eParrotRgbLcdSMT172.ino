@@ -26,7 +26,7 @@
 
 /*----( strings in flash )----*/
 const char msgSplash1[] PROGMEM = "eParrot  RGB LCD";
-const char msgSplash2[] PROGMEM = "V 0.12 S  (c) EC";
+const char msgSplash2[] PROGMEM = "V 0.13 S  (c) EC";
 const char logFilename[] PROGMEM =  "RUN_00.CSV";
 const char msgNo[] PROGMEM = "No";
 const char msgCanceled[] PROGMEM = "Canceled";
@@ -52,8 +52,11 @@ const char msgAlarm[] PROGMEM = "Alarm";
 const char msgHealty[] PROGMEM = "Healthy ";
 const char msgBoiler[] PROGMEM = "Boiler  ";
 const char msgVent1[] PROGMEM = "Vent 1  ";
+#ifdef COOLING
+const char msgVent2[] PROGMEM = "Cooling ";
+#else
 const char msgVent2[] PROGMEM = "Vent 2  ";
-
+#endif
 
 /*----( make instances for the Dallas sensors, BMP280, etc. )----*/
 OneWire pinBoilerSensor(pinBoiler), pinVaporSensor(pinVapor),
@@ -237,10 +240,12 @@ void setup()
 	lcd.setCursor(0,1);
 	lcd.printP(msgSplash2);
 
-	delay(3000);
-
+	// read the sensors twice in a row to get a valid
+	// Vent1LastTemperature and Vent2LastTemperature
 	readSensors();
-	LastSensorUpdate=millis();
+	delay(1000);
+	readSensors();
+	delay(1000);
 
 	showMainInit();
 }
@@ -260,6 +265,7 @@ void loop()
 	doFunctionAtInterval(readSMT172, LastSMT172Update, 250);
 	doFunctionAtInterval(alternateBacklight, AlternateBacklightUpdate, 500);
 	doFunctionAtInterval(readSensors, LastSensorUpdate, 1000);	// read the baro and DS18B20's every second
+	doFunctionAtInterval(handleAlarms, LastAlarmUpdate, 1000);	// handle the alarms every second
 	doFunctionAtInterval(handleWarmingup, LastWarmingupUpdate, 60000);	// check warming up every minute
 	lcd.readKeys();
 }
@@ -307,14 +313,21 @@ void handleAlarms() {
 							- Sensors.Vent1LastTemperature
 							> VentAlarmDeltaTemperature))
 		HealthAlarm = healthVent1;
+#ifdef COOLING
+	else if (digitalRead(pinVent2AlarmEnable)
+			&& (Sensors.Vent2.Type == NoSensor
+					|| Sensors.Vent2.Temperature > CoolingAlarmTemperature))
+#else
 	else if (digitalRead(pinVent2AlarmEnable)
 			&& (Sensors.Vent2.Type == NoSensor
 					|| Sensors.Vent2.Temperature > VentAlarmTemperature
 					|| Sensors.Vent2.Temperature
 							- Sensors.Vent2LastTemperature
 							> VentAlarmDeltaTemperature))
+#endif
 		HealthAlarm = healthVent2;
-	else HealthAlarm = healthOk;
+	else if (AlarmStatusHealth == acknowledged)
+		HealthAlarm = healthOk;
 
 	switch (AlarmStatusHealth) {
 	case disabled:
@@ -427,10 +440,10 @@ void readSensors() {
 	Sensors.BoilerPressureRaw = analogRead(pinBoilerPressure);
 	Sensors.BoilerPressure = (Sensors.BoilerPressureRaw - Settings.BoilerPressureOffset) / 2 ;
 
-
-	if (readDS18B20(Sensors.Vapor, Settings.VaporOffset, VaporDS18B20))
-		Sensors.VaporABV = TtoVaporABV(Sensors.Vapor.Temperature,
-									Sensors.BaroPressure);
+	if (Sensors.Vapor.Type == DS18B20)
+		if (readDS18B20(Sensors.Vapor, Settings.VaporOffset, VaporDS18B20))
+			Sensors.VaporABV = TtoVaporABV(Sensors.Vapor.Temperature,
+					Sensors.BaroPressure);
 
 	if (readDS18B20(Sensors.Boiler, Settings.BoilerOffset, BoilerDS18B20))
 		Sensors.BoilerABV = TtoLiquidABV(Sensors.Boiler.Temperature,
@@ -460,7 +473,6 @@ void readSensors() {
 	if (LogFile.status == fileOk)
 		if (!writeDataToFile())
 			LogFile.status = fileError;
-	handleAlarms();
 }
 
 logStatus createFile() {
@@ -742,7 +754,6 @@ void showBaroInit() {
 	else
 		lcd.keyUp.onShortPress = showMainInit;
 	lcd.keyDown.onShortPress = showTimeInit;
-	lcd.keySelect.onLongPress = zeroBoilerPressure;
 	ReturnPage = showBaroInit;
 	showBaroRefresh();
 	AutoPageRefresh = showBaroRefresh;
