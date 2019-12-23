@@ -68,19 +68,19 @@ uint16_t eeRead16(uint16_t address) {
 
 float TtoLiquidABV(float T, float P) {
 	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
-	// starting point of the table) in 캽C
+	// starting point of the table) in 째cC
 	int16_t IndexABV = int16_t((T + 100 - h2oBoilingPoint(P)) * 100 + 0.5) - 7818;
 	if (IndexABV < 0) return float(IndexABV) * 0.01; // Below azeotrope
-	if (IndexABV + 7818 > 10000) return 0; // Above 100 캜
+	if (IndexABV + 7818 > 10000) return 0; // Above 100 째C
 	return float(eeRead16( 0 + IndexABV * 2)) / 10;
 };
 
 float TtoVaporABV(float T, float P) {
 	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
-	// starting point of the table) in 캽C
+	// starting point of the table) in 째cC
 	int16_t IndexABV = int16_t((T + 78.174 - azeotrope(P))  * 100 + 0.5) - 7818;
 	if (IndexABV < 0) return float(IndexABV) * 0.01; // Below azeotrope
-	if (IndexABV + 7818 > 10000) return 0; // Above 100 캜
+	if (IndexABV + 7818 > 10000) return 0; // Above 100 째C
 	return float(eeRead16( 0x110E + IndexABV * 2)) / 10;
 };
 
@@ -88,19 +88,19 @@ float TtoVaporABV(float T, float P) {
 
 float TtoLiquidABV(float T, float P) {
 	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
-	// starting point of the table) in 캽C
+	// starting point of the table) in 째cC
 	int16_t IndexABV = int16_t((T + 100 - h2oBoilingPoint(P)) * 100 + 0.5) - 7818;
 	if (IndexABV < 0) return float(IndexABV) * 0.01; // Below azeotrope
-	if (IndexABV + 7818 > 10000) return 0; // Above 100 캜
+	if (IndexABV + 7818 > 10000) return 0; // Above 100 째C
 	return float(eeRead16( 0 + IndexABV * 2)) / 10;
 };
 
 float TtoVaporABV(float T, float P) {
 	// Calculate the index for the table (7818 is the the azeotrope at 1013.25 hPa and the
-	// starting point of the table) in 캽C
+	// starting point of the table) in 째cC
 	int16_t IndexABV = int16_t((T + 78.174 - azeotrope(P)) * 100 + 0.5) - 7818;
 	if (IndexABV < 0) return float(IndexABV) * 0.01; // Below azeotrope
-	if (IndexABV + 7818 > 10000) return 0; // Above 100 캜
+	if (IndexABV + 7818 > 10000) return 0; // Above 100 째C
 	return float(eeRead16( 0 + IndexABV * 2)) / 10;
 };
 
