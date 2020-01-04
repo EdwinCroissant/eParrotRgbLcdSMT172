@@ -26,7 +26,7 @@
 
 /*----( strings in flash )----*/
 const char msgSplash1[] PROGMEM = "eParrot  RGB LCD";
-const char msgSplash2[] PROGMEM = "V 0.13 S  (c) EC";
+const char msgSplash2[] PROGMEM = "V 0.14 S  (c) EC";
 const char logFilename[] PROGMEM =  "RUN_00.CSV";
 const char msgNo[] PROGMEM = "No";
 const char msgCanceled[] PROGMEM = "Canceled";
@@ -90,15 +90,12 @@ struct sensors {
 	float Vent2LastTemperature;		// in C
 } Sensors;
 
-union {
-	uint8_t settingsArray[];
-	struct {
+struct settings {
 		int16_t VaporOffset;		// in cC
 		int16_t BoilerOffset;		// in cC
 		uint8_t Alarm[4];			// in %
 		uint8_t WarmedUp;			// in C
 		int16_t BoilerPressureOffset;
-	};
 } Settings;
 
 alarmStatus AlarmStatusVapor;
@@ -132,11 +129,11 @@ int16_t oldOffset;
 void (*PrintOffset)();
 
 void saveSettings() {
-	rtc.writeRam(0,Settings.settingsArray,sizeof(Settings));
+	rtc.writeRam(0, (uint8_t*) &Settings, sizeof(settings));
 }
 
 void loadSettings() {
-	rtc.readRam(0, sizeof(Settings), Settings.settingsArray);
+	rtc.readRam(0, sizeof(settings), (uint8_t*) &Settings);
 }
 
 // call back for file timestamps
