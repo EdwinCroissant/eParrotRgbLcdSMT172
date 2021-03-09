@@ -49,18 +49,18 @@ float azeotrope(float p) {
 
 uint16_t eeRead16(uint16_t address) {
 	union {
-		uint8_t as8[];
+		uint8_t as8[2];
 		uint16_t as16;
 	} value;
-	I2c.start();
-	I2c.sendAddress(SLA_W(0x50));
-	I2c.sendByte(highByte(address));
-	I2c.sendByte(lowByte(address));
-	I2c.start();
-	I2c.sendAddress(SLA_R(0x50));
-	I2c.receiveByte(1, &value.as8[0]);
-	I2c.receiveByte(0, &value.as8[1]);
-	I2c.stop();
+	I2c._start();
+	I2c._sendAddress(SLA_W(0x50));
+	I2c._sendByte(highByte(address));
+	I2c._sendByte(lowByte(address));
+	I2c._start();
+	I2c._sendAddress(SLA_R(0x50));
+	I2c._receiveByte(1, &value.as8[0]);
+	I2c._receiveByte(0, &value.as8[1]);
+	I2c._stop();
 	return value.as16;
 }
 
