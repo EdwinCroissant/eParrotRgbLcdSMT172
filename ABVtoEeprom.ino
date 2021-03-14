@@ -8,18 +8,24 @@
 #include <I2C.h>				//https://github.com/rambo/I2C
 #include <RgbLcdKeyShieldI2C.h>	//https://github.com/EdwinCroissantArduinoLibraries/RgbLcdKeyShieldI2C
 
-const char msgSplash1[] PROGMEM = "ABV table write";
-const char msgSplash2[] PROGMEM = "V 0.02    (c) EC";
-const char msgStart1[] PROGMEM = "L=check S=fill";
-const char msgStart2[] PROGMEM = "R=step through";
+const char msgSplash1[] PROGMEM = "ABV table flash";
+const char msgSplash2[] PROGMEM = "V 0.03   (c) EC";
+const char msgStart1[] PROGMEM = "U=flash D=check";
+const char msgStart2[] PROGMEM = "LRS this screen";
 const char msgOk[] PROGMEM = " OK";
 const char msgFail[] PROGMEM = " Fail";
+const char msgNoEeprom1[] PROGMEM = "No EEPROM at";
+const char msgNoEeprom2[] PROGMEM = "I2C addr. 0x50";
 uint16_t VaporAddress;
 char lineBuffer[20];
 uint16_t Counter = 0;
 
+const uint8_t EepromAddress = 0x50;
+
 /*----make instance of the lcd ----*/
-RgbLcdKeyShieldI2C lcd;
+RgbLcdKeyShieldI2C lcd(true);	//inverted backlight
+// RgbLcdKeyShieldI2C lcd;				// non inverted backlight
+
 
 /*------- Tables to be transferred---------*/
 const static uint16_t LiquidABV[] PROGMEM = {
@@ -258,15 +264,15 @@ uint16_t eepromWriteP(const uint16_t address, const char* data, const uint16_t s
 	 */
 	uint16_t n = 0;
 	while (n < size) {
-		I2c.start();
-		I2c.sendAddress(SLA_W(0x50));
-		I2c.sendByte(highByte(address + n));
-		I2c.sendByte(lowByte(address + n));
+		I2c._start();
+		I2c._sendAddress(SLA_W(EepromAddress));
+		I2c._sendByte(highByte(address + n));
+		I2c._sendByte(lowByte(address + n));
 		do {
-			I2c.sendByte(pgm_read_byte(data + n));
+			I2c._sendByte(pgm_read_byte(data + n));
 			n++;
 		} while ((n < size) && ((address + n) % 64));
-		I2c.stop();
+		I2c._stop();
 		delay(5);
 	}
 	return n;
@@ -274,18 +280,18 @@ uint16_t eepromWriteP(const uint16_t address, const char* data, const uint16_t s
 
 uint16_t epromReadWord(uint16_t address) {
 	union {
-		uint8_t value8[];
+		uint8_t value8[2];
 		uint16_t value16;
 	} value;
-	I2c.start();
-	I2c.sendAddress(SLA_W(0x50));
-	I2c.sendByte(highByte(address));
-	I2c.sendByte(lowByte(address));
-	I2c.start();
-	I2c.sendAddress(SLA_R(0x50));
-	I2c.receiveByte(1, &value.value8[0]);
-	I2c.receiveByte(0, &value.value8[1]);
-	I2c.stop();
+	I2c._start();
+	I2c._sendAddress(SLA_W(EepromAddress));
+	I2c._sendByte(highByte(address));
+	I2c._sendByte(lowByte(address));
+	I2c._start();
+	I2c._sendAddress(SLA_R(EepromAddress));
+	I2c._receiveByte(1, &value.value8[0]);
+	I2c._receiveByte(0, &value.value8[1]);
+	I2c._stop();
 	return value.value16;
 }
 
@@ -296,8 +302,10 @@ void fillEeprom() {
 	lcd.print(tempAddress, HEX);
 	VaporAddress = tempAddress;
 	tempAddress = tempAddress + eepromWriteP(tempAddress, (char*) VaporABV, sizeof(VaporABV));
-	lcd.setCursor(0,1);
+	lcd.setCursor(7,0);
 	lcd.print(tempAddress, HEX);
+	lcd.setCursor(0,1);
+	lcd.print(F("Done!"));
 }
 
 
@@ -346,9 +354,21 @@ void setup() {
 	lcd.printP(msgSplash1);
 	lcd.setCursor(0,1);
 	lcd.printP(msgSplash2);
-	delay(3000);
+	delay(2000);
 
-	showMainInit();
+    uint8_t returnStatus = 0;
+    returnStatus = I2c._start();
+    if (!returnStatus) returnStatus = I2c._sendAddress(SLA_W(EepromAddress));
+    if (returnStatus) {
+    	lcd.clear();
+    	lcd.setCursor(0,0);
+    	lcd.printP(msgNoEeprom1);
+    	lcd.setCursor(0,1);
+    	lcd.printP(msgNoEeprom2);
+    	while(true){};
+     }
+    I2c._stop();
+ 	showMainInit();
 }
 
 // The loop function is called in an endless loop
@@ -363,88 +383,11 @@ void showMainInit() {
 	lcd.setCursor(0,1);
 	lcd.printP(msgStart2);
 	lcd.clearKeys();
-	lcd.keySelect.onShortPress = fillEeprom;
-	lcd.keyLeft.onShortPress = verifyEeprom;
-	lcd.keyRight.onShortPress = showStepThrough;
-}
-
-void showStepThrough() {
-	lcd.clear();
-	printTableRow();
-	lcd.setCursor(3,0);
-	lcd.cursor();
-	lcd.clearKeys();
+	lcd.keyUp.onShortPress = fillEeprom;
+	lcd.keyDown.onShortPress = verifyEeprom;
+	lcd.keyRight.onShortPress =  showMainInit;
+	lcd.keyLeft.onShortPress =  showMainInit;
 	lcd.keySelect.onShortPress = showMainInit;
-	lcd.keyDown.onShortPress = decCounter;
-	lcd.keyDown.onRepPress = decCounter;
-	lcd.keyUp.onShortPress = incCounter;
-	lcd.keyUp.onRepPress = incCounter;
-	lcd.keyLeft.onShortPress = prevDigit;
-	lcd.keyRight.onShortPress = nextDigit;
-}
-
-void printTableRow() {
-	uint8_t cursorPosition = lcd.getCursor();
-	lcd.noCursor();
-	lcd.setCursor(0, 0);
-	sprintf(lineBuffer, "%.4x %5.1u %5.1u  ", Counter * 2,
-			pgm_read_word(&LiquidABV[Counter]), epromReadWord(Counter * 2));
-	lcd.print(lineBuffer);
-	lcd.setCursor(0, 1);
-	sprintf(lineBuffer, "%.4x %5.1u %5.1u  ", VaporAddress + Counter * 2,
-			pgm_read_word(&VaporABV[Counter]),
-			epromReadWord(VaporAddress + Counter * 2));
-	lcd.print(lineBuffer);
-	lcd.setCursor(cursorPosition, 0);
-	lcd.cursor();
-}
-
-void incCounter() {
-	switch(lcd.getCursor()) {
-	case 0:
-		Counter += +0xfff;
-		break;
-	case 1:
-		Counter += 0xff;
-		break;
-	case 2:
-		Counter += 0xf;
-		break;
-	default:
-		Counter++;
-		break;
-	}
-	printTableRow();
-}
-
-void decCounter() {
-	switch(lcd.getCursor()) {
-	case 0:
-		Counter -= 0xfff;
-		break;
-	case 1:
-		Counter -= 0xff;
-		break;
-	case 2:
-		Counter -= 0xf;
-		break;
-	default:
-		Counter--;
-		break;
-	}
-	printTableRow();
-}
-
-void prevDigit() {
-	if (lcd.getCursor() > 0)
-		lcd.moveCursorLeft();
-	else lcd.setCursor(3,0);
-}
-
-void nextDigit() {
-	if (lcd.getCursor() < 3)
-		lcd.moveCursorRight();
-	else lcd.setCursor(0,0);
 }
 
 
